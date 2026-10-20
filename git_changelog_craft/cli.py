@@ -14,6 +14,15 @@ from git_changelog_craft.parser import CommitParser
 from git_changelog_craft.semver import SemVer
 
 
+def safe_print(text: str) -> None:
+    """Safely print unicode strings even in legacy Windows console encodings."""
+    try:
+        print(text)
+    except UnicodeEncodeError:
+        enc = sys.stdout.encoding or "utf-8"
+        print(text.encode(enc, errors="replace").decode(enc))
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="git-changelog-craft",
@@ -27,6 +36,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     # generate subcommand
     gen_p = subparsers.add_parser("generate", help="Generate changelog or release notes")
+    gen_p.add_argument(
+        "--all",
+        action="store_true",
+        help="Include all commits from repository root up to to-ref.",
+    )
     gen_p.add_argument(
         "--from-ref",
         dest="from_ref",
@@ -82,6 +96,11 @@ def build_parser() -> argparse.ArgumentParser:
     # bump subcommand
     bump_p = subparsers.add_parser(
         "bump", help="Analyze commits and calculate the next semantic version"
+    )
+    bump_p.add_argument(
+        "--all",
+        action="store_true",
+        help="Include all commits from repository root up to to-ref.",
     )
     bump_p.add_argument(
         "--from-ref",
@@ -157,28 +176,28 @@ def handle_init(args: argparse.Namespace) -> int:
     with open(target_path, "w", encoding="utf-8") as f:
         json.dump(config_dict, f, indent=2)
 
-    print(f"Initialized configuration file at '{target_path}'")
+    safe_print(f"Initialized configuration file at '{target_path}'")
     return 0
 
 
 def handle_parse(args: argparse.Namespace) -> int:
     commit = CommitParser.parse(args.message)
     if args.json:
-        print(json.dumps(commit.to_dict(), indent=2))
+        safe_print(json.dumps(commit.to_dict(), indent=2))
     else:
-        print(f"Conventional : {commit.is_conventional}")
-        print(f"Type         : {commit.type or 'None'}")
-        print(f"Scope        : {commit.scope or 'None'}")
-        print(f"Description  : {commit.description}")
-        print(f"Breaking     : {commit.is_breaking}")
+        safe_print(f"Conventional : {commit.is_conventional}")
+        safe_print(f"Type         : {commit.type or 'None'}")
+        safe_print(f"Scope        : {commit.scope or 'None'}")
+        safe_print(f"Description  : {commit.description}")
+        safe_print(f"Breaking     : {commit.is_breaking}")
         if commit.breaking_description:
-            print(f"Breaking Desc: {commit.breaking_description}")
+            safe_print(f"Breaking Desc: {commit.breaking_description}")
         if commit.references:
-            print(f"References   : {', '.join(commit.references)}")
+            safe_print(f"References   : {', '.join(commit.references)}")
         if commit.footers:
-            print("Footers      :")
+            safe_print("Footers      :")
             for k, v in commit.footers.items():
-                print(f"  {k}: {v}")
+                safe_print(f"  {k}: {v}")
     return 0
 
 
@@ -187,7 +206,7 @@ def handle_bump(args: argparse.Namespace) -> int:
     cfg = Config.load(search_dir=args.repo_dir)
 
     latest_tag = repo.get_latest_tag()
-    from_ref = args.from_ref or latest_tag
+    from_ref = None if args.all else (args.from_ref or latest_tag)
 
     current_ver_str = args.current_version or latest_tag or cfg.default_version
     try:
@@ -201,12 +220,12 @@ def handle_bump(args: argparse.Namespace) -> int:
     next_ver = current_semver.bump(bump_level)
 
     if args.dry_run:
-        print(str(next_ver))
+        safe_print(str(next_ver))
     else:
-        print(f"Current version: {current_semver}")
-        print(f"Analyzed {len(commits)} commit(s) from '{from_ref or 'root'}' to '{args.to_ref}'")
-        print(f"Determined bump: {bump_level.value.upper()}")
-        print(f"Next version   : {next_ver}")
+        safe_print(f"Current version: {current_semver}")
+        safe_print(f"Analyzed {len(commits)} commit(s) from '{from_ref or 'root'}' to '{args.to_ref}'")
+        safe_print(f"Determined bump: {bump_level.value.upper()}")
+        safe_print(f"Next version   : {next_ver}")
     return 0
 
 
@@ -220,7 +239,7 @@ def handle_generate(args: argparse.Namespace) -> int:
         cfg.repo_url = repo.get_remote_url()
 
     latest_tag = repo.get_latest_tag()
-    from_ref = args.from_ref or latest_tag
+    from_ref = None if args.all else (args.from_ref or latest_tag)
     commits = repo.get_commits(from_ref=from_ref, to_ref=args.to_ref)
 
     generator = ChangelogGenerator(cfg)
@@ -253,7 +272,7 @@ def handle_generate(args: argparse.Namespace) -> int:
                 version=version_name,
                 commits=commits,
             )
-            print(f"Updated changelog at '{args.output}' for version {version_name}")
+            safe_print(f"Updated changelog at '{args.output}' for version {version_name}")
             return 0
         else:
             output_text = generator.generate_section(
@@ -263,14 +282,21 @@ def handle_generate(args: argparse.Namespace) -> int:
     if args.output:
         with open(args.output, "w", encoding="utf-8") as f:
             f.write(output_text + "\n")
-        print(f"Written output to '{args.output}'")
+        safe_print(f"Written output to '{args.output}'")
     else:
-        print(output_text)
+        safe_print(output_text)
 
     return 0
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    # Try reconfiguring stdout to utf-8 if supported
+    if hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
     parser = build_parser()
     args = parser.parse_args(argv)
 
