@@ -130,6 +130,33 @@ def build_parser() -> argparse.ArgumentParser:
         help="Output the calculated next version string only.",
     )
 
+    # validate subcommand
+    val_p = subparsers.add_parser(
+        "validate", help="Validate git commits against Conventional Commits specification"
+    )
+    val_p.add_argument(
+        "--from-ref",
+        dest="from_ref",
+        help="Starting git ref to validate.",
+    )
+    val_p.add_argument(
+        "--to-ref",
+        dest="to_ref",
+        default="HEAD",
+        help="Ending git ref (default: HEAD).",
+    )
+    val_p.add_argument(
+        "--repo-dir",
+        dest="repo_dir",
+        default=".",
+        help="Path to git repository directory.",
+    )
+    val_p.add_argument(
+        "--strict",
+        action="store_true",
+        help="Enforce standard conventional commit types (feat, fix, docs, etc.).",
+    )
+
     # parse subcommand
     parse_p = subparsers.add_parser(
         "parse", help="Parse a single commit message into conventional components"
@@ -198,6 +225,41 @@ def handle_parse(args: argparse.Namespace) -> int:
             safe_print("Footers      :")
             for k, v in commit.footers.items():
                 safe_print(f"  {k}: {v}")
+    return 0
+
+
+def handle_validate(args: argparse.Namespace) -> int:
+    repo = GitRepo(args.repo_dir)
+    commits = repo.get_commits(from_ref=args.from_ref, to_ref=args.to_ref)
+    if not commits:
+        safe_print("No commits found in specified range.")
+        return 0
+
+    valid_types = {
+        "feat", "fix", "docs", "style", "refactor",
+        "perf", "test", "build", "ci", "chore", "revert"
+    }
+
+    errors = 0
+    safe_print(f"Validating {len(commits)} commit(s)...")
+
+    for c in commits:
+        sha_label = f"[{c.short_sha or 'HEAD'}]"
+        if not c.is_conventional:
+            safe_print(f"  FAIL {sha_label} '{c.description}': does not match conventional commit format '<type>(<scope>): <description>'")
+            errors += 1
+        elif args.strict and c.type not in valid_types:
+            safe_print(f"  FAIL {sha_label} '{c.description}': unknown commit type '{c.type}'. Allowed: {', '.join(sorted(valid_types))}")
+            errors += 1
+        else:
+            scope_str = f"({c.scope})" if c.scope else ""
+            safe_print(f"  PASS {sha_label} {c.type}{scope_str}: {c.description}")
+
+    if errors > 0:
+        safe_print(f"\nValidation failed: {errors} non-conventional commit(s) found.")
+        return 1
+
+    safe_print("\nAll commits comply with Conventional Commits!")
     return 0
 
 
@@ -308,6 +370,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         return handle_init(args)
     elif args.command == "parse":
         return handle_parse(args)
+    elif args.command == "validate":
+        return handle_validate(args)
     elif args.command == "bump":
         return handle_bump(args)
     elif args.command == "generate":

@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Python Version](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://python.org)
 
-**git-changelog-craft** is a lightning-fast CLI tool that analyzes conventional git commits, tags, and PR references to generate changelogs, release notes, and automated semantic version bumps.
+**git-changelog-craft** is a lightning-fast CLI tool that analyzes conventional git commits, tags, and PR references to generate changelogs, release notes, automated semantic version bumps, and commit validation.
 
 ---
 
@@ -12,6 +12,7 @@
 
 - **Conventional Commit Engine**: Parses types (`feat`, `fix`, `perf`, `refactor`, `docs`, etc.), scopes, breaking indicators (`!`), and footer notes (`BREAKING CHANGE: ...`).
 - **Semantic Version Bumps**: Calculates the next version (`major`, `minor`, `patch`) automatically based on commit history.
+- **Commit History Validator**: Enforces Conventional Commits compliance in pull requests and CI pipelines (`validate`).
 - **Multiple Output Formats**:
   - `markdown`: Keep a Changelog compliant markdown.
   - `release-notes`: Clean notes ready for GitHub Releases or Slack announcements.
@@ -50,14 +51,11 @@ git-changelog-craft generate
 git-changelog-craft generate -o CHANGELOG.md --update-file
 ```
 
-### 2. Output Formats
+### 2. Validate Git Commits in CI / Pull Requests
 
 ```bash
-# Generate GitHub Release Notes
-git-changelog-craft generate --format release-notes
-
-# Generate JSON for CI pipelines
-git-changelog-craft generate --format json
+# Validate commits on current branch against main
+git-changelog-craft validate --from-ref origin/main --strict
 ```
 
 ### 3. Compute the Next Semantic Version
@@ -71,7 +69,17 @@ NEXT_VER=$(git-changelog-craft bump --dry-run)
 echo "Next release: $NEXT_VER"
 ```
 
-### 4. Parse a Single Commit Message
+### 4. Output Formats
+
+```bash
+# Generate GitHub Release Notes
+git-changelog-craft generate --format release-notes
+
+# Generate JSON for CI pipelines
+git-changelog-craft generate --format json
+```
+
+### 5. Parse a Single Commit Message
 
 ```bash
 git-changelog-craft parse "feat(auth)!: add OAuth2 PKCE login flow (#42)"
@@ -88,7 +96,7 @@ Breaking Desc: add OAuth2 PKCE login flow (#42)
 References   : #42
 ```
 
-### 5. Initialize Configuration File
+### 6. Initialize Configuration File
 
 ```bash
 git-changelog-craft init
@@ -129,41 +137,55 @@ This creates `.changelog-craft.json` with customizable categories and templates.
 
 ## 🤖 GitHub Actions Workflow Example
 
-Automate your release process with GitHub Actions:
+Automate your release process and commit validation with GitHub Actions:
 
 ```yaml
-name: Release
+name: Release & Validate
 
 on:
   push:
     branches: [ main ]
+  pull_request:
+    branches: [ main ]
 
 jobs:
-  release:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
       - name: Install git-changelog-craft
         run: pip install git-changelog-craft
+      - name: Validate Commits
+        if: github.event_name == 'pull_request'
+        run: git-changelog-craft validate --from-ref origin/main --strict
 
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install git-changelog-craft
+        run: pip install git-changelog-craft
       - name: Calculate Next Version
         id: bump
         run: |
           NEXT_VER=$(git-changelog-craft bump --dry-run)
           echo "version=$NEXT_VER" >> $GITHUB_OUTPUT
-
       - name: Generate Release Notes
         run: |
           git-changelog-craft generate --format release-notes --output release_notes.md
-
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:

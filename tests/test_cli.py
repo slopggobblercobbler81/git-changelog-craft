@@ -73,3 +73,28 @@ def test_cli_generate_markdown(capsys):
         assert "## [v1.1.0]" in captured.out
         assert "### ✨ Features" in captured.out
         assert "**ui**: add dark theme" in captured.out
+
+
+def test_cli_validate_success(capsys):
+    commits = [
+        CommitParser.parse("feat(api): add endpoint", sha="abc1234"),
+        CommitParser.parse("fix: fix edge case", sha="def5678"),
+    ]
+    with patch("git_changelog_craft.cli.GitRepo.get_commits", return_value=commits):
+        code = main(["validate"])
+        assert code == 0
+        captured = capsys.readouterr()
+        assert "PASS" in captured.out
+        assert "comply with Conventional Commits" in captured.out
+
+
+def test_cli_validate_failure(capsys):
+    commits = [
+        CommitParser.parse("random commit without convention", sha="abc1234"),
+    ]
+    with patch("git_changelog_craft.cli.GitRepo.get_commits", return_value=commits):
+        code = main(["validate"])
+        assert code == 1
+        captured = capsys.readouterr()
+        assert "FAIL" in captured.out
+        assert "non-conventional commit(s) found" in captured.out
